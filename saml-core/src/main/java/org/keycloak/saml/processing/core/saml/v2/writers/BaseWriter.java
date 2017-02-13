@@ -31,6 +31,7 @@ import org.keycloak.saml.common.PicketLinkLoggerFactory;
 import org.keycloak.saml.common.constants.JBossSAMLConstants;
 import org.keycloak.saml.common.constants.JBossSAMLURIConstants;
 import org.keycloak.saml.common.exceptions.ProcessingException;
+import org.keycloak.saml.common.util.DocumentUtil;
 import org.keycloak.saml.common.util.StaxUtil;
 import org.keycloak.saml.common.util.StringUtil;
 import org.keycloak.saml.processing.core.saml.v2.util.StaxWriterUtil;
@@ -175,11 +176,24 @@ public class BaseWriter {
             for (Object attributeValue : attributeValues) {
                 if (attributeValue != null) {
                     if (attributeValue instanceof String) {
-                        writeStringAttributeValue((String) attributeValue);
+                        String stringValue = (String) attributeValue;
+                        if (stringValue != null && stringValue.startsWith("<") && stringValue.endsWith(">") && (stringValue.contains("/>") || stringValue.contains("</"))) {
+                            try {
+                                writeAnyTypeAttributeValue(DocumentUtil.getDocument(stringValue).getDocumentElement());
+                            } catch (Exception e) {
+                                logger.warn("Failed to build node for anyType attribute [" + e.getMessage() + "]. Value will be set as string.");
+                                writeStringAttributeValue(stringValue);
+                            }
+                        } else {
+                            writeStringAttributeValue(stringValue);
+                        }
                     } else if (attributeValue instanceof NameIDType) {
                     	writeNameIDTypeAttributeValue((NameIDType) attributeValue);
-                    } else
+                    } else if (attributeValue instanceof Node) {
+                        writeAnyTypeAttributeValue((Node) attributeValue);
+                    } else {
                         throw logger.writerUnsupportedAttributeValueError(attributeValue.getClass().getName());
+                    }
                 }
             }
         }
@@ -188,6 +202,12 @@ public class BaseWriter {
     public void writeNameIDTypeAttributeValue(NameIDType attributeValue) throws ProcessingException {
         StaxUtil.writeStartElement(writer, ASSERTION_PREFIX, JBossSAMLConstants.ATTRIBUTE_VALUE.get(), ASSERTION_NSURI.get());
     	write((NameIDType)attributeValue, new QName(ASSERTION_NSURI.get(), JBossSAMLConstants.NAMEID.get(), ASSERTION_PREFIX));
+        StaxUtil.writeEndElement(writer);
+    }
+    
+    public void writeAnyTypeAttributeValue(Node attributeValue) throws ProcessingException {
+        StaxUtil.writeStartElement(writer, ASSERTION_PREFIX, JBossSAMLConstants.ATTRIBUTE_VALUE.get(), ASSERTION_NSURI.get());
+        StaxUtil.writeDOMNode(writer, attributeValue);
         StaxUtil.writeEndElement(writer);
     }
 

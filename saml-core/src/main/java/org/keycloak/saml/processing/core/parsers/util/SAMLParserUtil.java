@@ -49,10 +49,14 @@ import org.w3c.dom.Element;
 import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLEventWriter;
+import javax.xml.stream.XMLOutputFactory;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.EndElement;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
+
+import java.io.StringWriter;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -311,23 +315,52 @@ public class SAMLParserUtil {
                 return "";
             }
 
-            throw logger.unsupportedType(StaxParserUtil.getStartElementName(startElement));
+            // By default, get the content as a string.
+            return parseAnyTypeAsString(xmlEventReader);
         }
         //      RK Added an additional type check for base64Binary type as calheers is passing this type
         String typeValue = StaxParserUtil.getAttributeValue(type);
         if (typeValue.contains(":string")) {
             return StaxParserUtil.getElementText(xmlEventReader);
         } else if (typeValue.contains(":anyType")) {
-            // TODO: for now assume that it is a text value that can be parsed and set as the attribute value
-            return StaxParserUtil.getElementText(xmlEventReader);
+            // get the content as a string.
+            return parseAnyTypeAsString(xmlEventReader);
         } else if(typeValue.contains(":base64Binary")){
             return StaxParserUtil.getElementText(xmlEventReader);
         } else if(typeValue.contains(":boolean")){
             return StaxParserUtil.getElementText(xmlEventReader);
         }
+        
+        // By default, get the content as a string.
+        return parseAnyTypeAsString(xmlEventReader);
+    }
+        
+    /**
+     * Parse an AttributeValue of unknown type.
+     * 
+     * @param xmlEventReader
+     * @return contents as string. If the value contains xmldata, it will simply be printed as string.
+     * @throws ParsingException
+     */
+    public static String parseAnyTypeAsString(XMLEventReader xmlEventReader) throws ParsingException {
+        try {
+            StringWriter sw = new StringWriter();
+            XMLEventWriter writer = XMLOutputFactory.newInstance().createXMLEventWriter(sw);
 
-
-        throw logger.parserUnknownXSI(typeValue);
+            XMLEvent event = xmlEventReader.nextTag();
+            QName tagName = event.asStartElement().getName();
+            boolean endTagReached = false;
+            do {
+                writer.add(event);
+                event = (XMLEvent) xmlEventReader.next();
+                endTagReached = event.isEndElement() && event.asEndElement().getName().equals(tagName);
+            } while (xmlEventReader.hasNext() && !endTagReached);
+            writer.add(event);
+            writer.flush();
+            return sw.toString();
+        } catch (Exception e) {
+            throw logger.parserError(e);
+        }
     }
 
     /**

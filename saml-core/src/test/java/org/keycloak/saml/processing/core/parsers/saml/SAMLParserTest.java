@@ -200,4 +200,13 @@ public class SAMLParserTest {
             assertThat(parsedObject, instanceOf(EntityDescriptorType.class));
         }
     }
+    
+    @Test
+    public void testSaml20AssertionsWithComplexAttributeValue() throws Exception {
+        try (InputStream st = SAMLParserTest.class.getResourceAsStream("saml20-assertion-complex.xml")) {
+            Object parsedObject = parser.parse(st);
+            assertThat(parsedObject, instanceOf(AssertionType.class));
+        }
+    }
+    
 }
