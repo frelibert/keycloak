@@ -49,9 +49,11 @@ import org.keycloak.protocol.saml.SamlProtocolUtils;
 import org.keycloak.saml.SAML2LogoutResponseBuilder;
 import org.keycloak.saml.SAMLRequestParser;
 import org.keycloak.saml.common.constants.GeneralConstants;
+import org.keycloak.saml.common.constants.JBossSAMLConstants;
 import org.keycloak.saml.common.constants.JBossSAMLURIConstants;
 import org.keycloak.saml.common.exceptions.ConfigurationException;
 import org.keycloak.saml.common.exceptions.ProcessingException;
+import org.keycloak.saml.common.util.DocumentUtil;
 import org.keycloak.saml.processing.core.saml.v2.common.SAMLDocumentHolder;
 import org.keycloak.saml.processing.core.saml.v2.constants.X500SAMLProfileConstants;
 import org.keycloak.saml.processing.core.saml.v2.util.AssertionUtil;
@@ -60,6 +62,10 @@ import org.keycloak.saml.processing.web.util.PostBindingUtil;
 import org.keycloak.services.ErrorPage;
 import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.services.messages.Messages;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 
 import javax.ws.rs.Consumes;
 import javax.ws.rs.FormParam;
@@ -74,7 +80,11 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
 import javax.ws.rs.core.UriInfo;
+import javax.xml.crypto.dsig.XMLSignature;
+import javax.xml.namespace.QName;
+
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.security.Key;
 import java.security.cert.X509Certificate;
 import java.util.LinkedList;
@@ -83,6 +93,7 @@ import java.util.List;
 import org.keycloak.rotation.HardcodedKeyLocator;
 import org.keycloak.rotation.KeyLocator;
 import org.keycloak.saml.processing.core.util.KeycloakKeySamlExtensionGenerator;
+import org.keycloak.saml.processing.core.util.XMLEncryptionUtil;
 
 import java.util.*;
 
@@ -478,7 +489,32 @@ public class SAMLEndpoint {
     protected class PostBinding extends Binding {
         @Override
         protected void verifySignature(String key, SAMLDocumentHolder documentHolder) throws VerificationException {
-            SamlProtocolUtils.verifyDocumentSignature(documentHolder.getSamlDocument(), getIDPKeyLocator());
+            NodeList nl = documentHolder.getSamlDocument().getElementsByTagNameNS(XMLSignature.XMLNS, "Signature");
+            if (nl != null && nl.getLength() > 0) {
+                // Document contains enveloped signature, validate it
+                SamlProtocolUtils.verifyDocumentSignature(documentHolder.getSamlDocument(), getIDPKeyLocator());
+                return;
+            }
+            Element enc = org.keycloak.saml.common.util.DocumentUtil.getElement(documentHolder.getSamlDocument(), new QName(JBossSAMLConstants.ENCRYPTED_ASSERTION.get()));
+            if (enc != null) {
+                // Signature might be hidden in the encrypted assertion.
+                // We'll need to decrypt it first.
+                try {
+                    Document newDoc = DocumentUtil.createDocument();
+                    Node importedNode = newDoc.importNode(enc, true);
+                    newDoc.appendChild(importedNode);
+                    KeyManager.ActiveRsaKey keys = session.keys().getActiveRsaKey(realm);
+                    Element decryptedDocumentElement = XMLEncryptionUtil.decryptElementInDocument(newDoc, keys.getPrivateKey());
+                    newDoc = DocumentUtil.createDocument();
+                    importedNode = newDoc.importNode(decryptedDocumentElement, true);
+                    newDoc.appendChild(importedNode);
+                    SamlProtocolUtils.verifyDocumentSignature(newDoc, getIDPKeyLocator());
+                    return;
+                } catch (GeneralSecurityException e) {
+                    throw new IdentityBrokerException("Could not process response from SAML identity provider.", e);
+                }
+            }
+            throw new VerificationException("No Signature on document");
         }
 
         @Override
