@@ -37,6 +37,7 @@
     <packaging>pom</packaging>
 
     <properties>
+	    <skipTests>true</skipTests>
         <product.build-time>${timestamp}</product.build-time>
 
         <!-- WildFly -->
