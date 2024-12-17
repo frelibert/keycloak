@@ -738,6 +738,10 @@ public class DefaultTokenExchangeProvider implements TokenExchangeProvider {
                                                     AtomicReference<IdentityProviderModel> externalIdpModel) {
 
         IdentityProviderModel idpModel = session.identityProviders().getByAlias(alias);
+        if (idpModel == null) {
+            // no external provider available by alias
+            return;
+        }
         IdentityProvider idp = IdentityBrokerService.getIdentityProviderFactory(session, idpModel).create(session, idpModel);
         if (idp instanceof ExchangeExternalToken) {
             externalIdp.set((ExchangeExternalToken) idp);
